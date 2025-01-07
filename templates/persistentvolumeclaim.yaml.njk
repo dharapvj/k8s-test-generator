@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ metadata.name }}
+  namespace: {{ metadata.namespace }}
+status:
+  phase: Bound
+  capacity:
+    (length(storage) > `0`): true
+---

@@ -1,0 +1,9 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ metadata.name }}
+  namespace: {{ metadata.namespace }}
+status:
+  loadBalancer:
+    (length(ingress) > `0`): true
+---

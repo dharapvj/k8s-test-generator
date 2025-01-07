@@ -1,0 +1,25 @@
+{
+  "name": "k8s-test-generator",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "This application can generate chainsaw objects for all the objects in the cluster.",
+  "exports": "./src/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index"
+  },
+  "keywords": [],
+  "author": "vijay@dreamit.ltd",
+  "license": "Propriatory",
+  "dependencies": {
+    "@kubernetes/client-node": "^0.22.3",
+    "@types/nunjucks": "^3.2.6",
+    "nunjucks": "^3.2.4",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2"
+  }
+}

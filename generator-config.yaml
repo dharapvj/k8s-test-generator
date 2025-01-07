@@ -1,0 +1,31 @@
+# namespaces:
+#   include: *
+#   exclude: null
+
+apiGroups:
+#  include: *
+  include:
+  - name: CoreV1Api
+    resources:
+      include:
+      - ConfigMap
+      - PersistentVolumeClaim
+      - Secret
+      - ServiceAccount
+      - Service
+  - name: AppsV1Api
+    resources:
+      exclude:
+      - ReplicaSet
+      - ControllerRevision
+  - name: BatchV1Api
+    resources:
+      exclude:
+      - Job
+  - name: NetworkingV1Api
+  - name: PolicyV1Api
+  - name: RbacAuthorization
+# resources:
+# secrets
+# default exclude helm secrets as they are dynamic
+# default exclude secrets of type `kubernetes.io/service-account-token` as they are dynamic and not user created

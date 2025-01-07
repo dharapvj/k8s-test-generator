@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ metadata.name }}
+  namespace: {{ metadata.namespace }}
+{%- if data %}
+(length(data) > `0`): true
+{%- elif binaryData %} 
+(length(binaryData) > `0`): true
+{%- endif %}
+---
