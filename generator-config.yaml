@@ -24,7 +24,11 @@ apiGroups:
       - Job
   - name: NetworkingV1Api
   - name: PolicyV1Api
-  - name: RbacAuthorization
+  - name: RbacAuthorizationV1Api
+  - name: velero.io
+    resources:
+      exclude:
+      - backups # backups tend to get added and removed so are not static to test
 # resources:
 # secrets
 # default exclude helm secrets as they are dynamic

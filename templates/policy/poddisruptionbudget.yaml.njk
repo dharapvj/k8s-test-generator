@@ -1,0 +1,14 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ metadata.name }}
+  namespace: {{ metadata.namespace }}
+spec:
+{%- if spec.maxUnavailable %}
+  maxUnavailable: {{ spec.maxUnavailable }}
+{%- elif spec.minAvailable %}
+  minAvailable: {{ spec.minAvailable }}
+{%- endif %}
+status:
+  disruptionsAllowed: {{ status.disruptionsAllowed }}
+---

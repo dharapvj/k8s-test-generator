@@ -1,0 +1,13 @@
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: {{ metadata.name }}
+  namespace: {{ metadata.namespace }}
+spec:
+  default: {{ spec.default }}
+  provider: {{ spec.provider }}
+status:
+{%- if status.phase %}
+  phase: {{ status.phase }}
+{%- endif %}
+---

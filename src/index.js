@@ -1,5 +1,5 @@
 // @ts-check
-import {KubeConfig, ApiextensionsV1Api, ApisApi, AppsV1Api, AutoscalingV2Api, BatchV1Api, CoreV1Api, KubernetesObjectApi, V1APIResource} from '@kubernetes/client-node';
+import {KubeConfig, ApiextensionsV1Api, ApisApi, AppsV1Api, AutoscalingV2Api, BatchV1Api, CoreV1Api, KubernetesObjectApi, V1APIResource, CustomObjectsApi} from '@kubernetes/client-node';
 import { writeFile } from "node:fs/promises";
 
 import { capitalize } from "./utils.js";
@@ -24,10 +24,10 @@ kc.loadFromDefault();
 // For making dynamic call - we need to construct the Api ClassName e.g. BatchV1Api Dynamically
 const apisApi = kc.makeApiClient(ApisApi)
 const resp = await apisApi.getAPIVersions()
-console.log(resp.body.groups);
+// console.log(resp.body.groups);
 
 // Prepare an array of ApiGroup names - which we can then make a dynamic client for later
-/** @type Array<{apiName: string, apiVersion: string, resources?:{kind: string, namespaced:boolean, objects?: Array<import("@kubernetes/client-node").KubernetesObject>}[] }> */
+/** @type Array<{apiName: string, apiVersion: string, crd: boolean, resources?:{kind: string, namespaced:boolean, objects?: Array<import("@kubernetes/client-node").KubernetesObject>}[] }> */
 const apis=[]
 resp.body.groups.forEach(group => {
   // unfortunate reality - autoscaling/v2 has superceded autoscaling.k8s.io/v1 api. So we should skip adding autoscaling.k8s.io
@@ -36,7 +36,7 @@ resp.body.groups.forEach(group => {
       if (v.version === group.preferredVersion?.version) {
         // if group.name has a domain name e.g. acme.cert-manager.io or autoscaling.k8s.io
         // then we, for now, should only process the one with k8s.io but we must drop that part when creating API name
-        let process = false;
+        let process = false, crd = false;
         let name = group.name;
         if(name.includes(".")) {
           if(name.includes(".k8s.io")){
@@ -50,16 +50,25 @@ resp.body.groups.forEach(group => {
               name = name.substring(0, dotIdx+1) + char + name.substring(dotIdx+1 + 1);
               name = name.replace(".","")
             }
+          } else {
+            // Process custom resources
+            // console.log(JSON.stringify(group, null, 2));
+            process = true;
+            crd = true;
           }
         }else {
           process = true;
         }
-        if (process) apis.push({apiName: `${capitalize(name)}${capitalize(v.version)}Api`, apiVersion: `${group.name}/${group.preferredVersion?.version}`})
+        if (process && ! crd) {
+          apis.push({crd, apiName: `${capitalize(name)}${capitalize(v.version)}Api`, apiVersion: `${group.name}/${group.preferredVersion?.version}`})
+        } else if( process && crd ){
+          apis.push({crd, apiName: group.name, apiVersion: v.version})
+        } // NOOP if ! process
       }
     })
   }
 });
-apis.push({apiName: "CoreV1Api", apiVersion: ""})
+apis.push({apiName: "CoreV1Api", apiVersion: "", crd: false})
 // console.log(JSON.stringify(apis, null, 2));
 
 // Now that we have ApiGroups, below code gives us Resources for those apis
@@ -80,26 +89,53 @@ for await (const api of apis) {
 }
 // console.log(JSON.stringify(apis, null, 2));
 
-// const batchV1Api = kc.makeApiClient(clientRef["BatchV1Api"])
-// console.log(JSON.stringify((await batchV1Api.getAPIResources()).body.resources, null, 2))
+// // const batchV1Api = kc.makeApiClient(clientRef["BatchV1Api"])
+// // console.log(JSON.stringify((await batchV1Api.getAPIResources()).body.resources, null, 2))
 
-// TODO - also include Custom resources in the apigroup array above
-// const apiextensionsApi = kc.makeApiClient(ApiextensionsV1Api)
-// const resp = await apiextensionsApi.listCustomResourceDefinition()
-// const resources = resp.body.items.map( item => { return {item: item.metadata?.name, scope: item.spec.scope, group: item.spec.group }})
-// console.log(JSON.stringify(resources));
+// also include Custom resources in the apigroup array above
+const apiextensionsApi = kc.makeApiClient(ApiextensionsV1Api)
+const crds = await apiextensionsApi.listCustomResourceDefinition()
+const resources = crds.body.items.map( item => { return {apiVersion: item.status?.storedVersions[0], item: item.metadata?.name, scope: item.spec.scope, group: item.spec.group }})
+resources.forEach(res => {
+  const api = {};
+    console.log(JSON.stringify(res, null, 2));
+    // find corresponding api in `apis` list and populate resources block
+    const crapi = apis.find(api => api.apiName === res.group && api.apiVersion === res.apiVersion);
+    if (crapi) {
+      if( ! crapi?.resources) crapi.resources = [];
+      let kind = res.item?.substring(0,res.item.indexOf(res.group)-1)
+      if(!kind) kind ="ERROR"
+      crapi.resources.push( {namespaced: res.scope === "Namespaced", kind: kind})
+    }
+});
+// console.log(JSON.stringify(apis, null, 2));
+
 
 // We can make use of KubernetesObjectApi client to make generic list. It needs apitype and resource name and namespace as well!
 // Specifically, maybe we do not want pods as they have dynamic namings.. but we are interested in all the v1 objects like 
 // Deployments, Daemonsets, Statefulsets etc.
+const crApi = kc.makeApiClient(CustomObjectsApi);
 const k8sObjectApi = kc.makeApiClient(KubernetesObjectApi);
 for await (const api of apis) {
-  // console.log(`starting with api group ${api.apiName}`);
+  console.log(`starting with api group ${api.apiName}`);
   if(api.resources && api.resources.length >0 ) {
     for await (const res of api.resources) {
       // console.log(`attempting to list ${JSON.stringify(api, null,2)}`);
-      const k8sObjects = (await k8sObjectApi.list(api.apiVersion,res.kind)).body.items
-      console.log(`got ${k8sObjects.length} resources for ${api.apiVersion} - ${res.kind}`);
+      let k8sObjects;
+      if(! api.crd){
+        k8sObjects = (await k8sObjectApi.list(api.apiVersion,res.kind)).body.items
+        console.log(`got ${k8sObjects?.length} resources for ${api.apiVersion} - ${res.kind}`);
+      } else {
+        const group = api.apiName, v = api.apiVersion, plural = res.kind;
+        k8sObjects = (await crApi.listClusterCustomObject(group, v, plural)).body.items;
+        console.log(`got ${k8sObjects?.length} resources for ${group}/${v} - ${plural}`);
+      }
+      k8sObjects.forEach(o => {
+        delete o.metadata.managedFields
+        if(o.metadata.annotations && o.metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]) {
+          delete o.metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]
+        }
+      });
       res.objects=k8sObjects;
     }
   }
