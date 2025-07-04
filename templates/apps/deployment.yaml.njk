@@ -3,8 +3,8 @@ kind: Deployment
 metadata:
   name: {{ metadata.name }}
   namespace: {{ metadata.namespace }}
-status:
 {%- if status.readyReplicas %}
+status:
   readyReplicas: {{ status.readyReplicas }}
 {%- endif %}
 ---

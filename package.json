@@ -14,12 +14,12 @@
   "author": "vijay@dreamit.ltd",
   "license": "Propriatory",
   "dependencies": {
-    "@kubernetes/client-node": "^0.22.3",
-    "@types/nunjucks": "^3.2.6",
+    "@kubernetes/client-node": "^1.3.0",
     "nunjucks": "^3.2.4",
     "yaml": "^2.7.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2"
+    "@types/node": "^22.10.2",
+    "@types/nunjucks": "^3.2.6"
   }
 }

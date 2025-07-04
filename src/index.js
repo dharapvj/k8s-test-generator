@@ -1,6 +1,10 @@
 // @ts-check
 import {KubeConfig, ApiextensionsV1Api, ApisApi, AppsV1Api, AutoscalingV2Api, BatchV1Api, CoreV1Api, KubernetesObjectApi, V1APIResource, CustomObjectsApi} from '@kubernetes/client-node';
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import YAML from 'yaml'
+
+const config = YAML.parse(await readFile('./generator-config.yaml', { encoding: 'utf8' }))
+// log(config);
 
 import { capitalize } from "./utils.js";
 
@@ -29,7 +33,7 @@ const resp = await apisApi.getAPIVersions()
 // Prepare an array of ApiGroup names - which we can then make a dynamic client for later
 /** @type Array<{apiName: string, apiVersion: string, crd: boolean, resources?:{kind: string, namespaced:boolean, objects?: Array<import("@kubernetes/client-node").KubernetesObject>}[] }> */
 const apis=[]
-resp.body.groups.forEach(group => {
+resp.groups.forEach(group => {
   // unfortunate reality - autoscaling/v2 has superceded autoscaling.k8s.io/v1 api. So we should skip adding autoscaling.k8s.io
   if(group.name !== "autoscaling.k8s.io"){
     group.versions.forEach(v => {
@@ -78,7 +82,7 @@ for await (const api of apis) {
   if(clientRef[api.apiName]) {
     const dynApi = kc.makeApiClient(clientRef[api.apiName])
     /** @type V1APIResource[]  */
-    const resources = (await dynApi.getAPIResources()).body.resources
+    const resources = (await dynApi.getAPIResources()).resources
     // console.log(JSON.stringify(resources, null, 2))
     api.resources = resources.flatMap( res => { 
       if(res.kind === "Scale" || res.name.endsWith("/status") || res.name.endsWith("/proxy")|| res.name.endsWith("/attach")|| res.name.endsWith("/exec") || res.name.endsWith("/portforward") || !res.verbs.find(v=> v === "get")) {
@@ -95,7 +99,7 @@ for await (const api of apis) {
 // also include Custom resources in the apigroup array above
 const apiextensionsApi = kc.makeApiClient(ApiextensionsV1Api)
 const crds = await apiextensionsApi.listCustomResourceDefinition()
-const resources = crds.body.items.map( item => { return {apiVersion: item.status?.storedVersions[0], item: item.metadata?.name, scope: item.spec.scope, group: item.spec.group }})
+const resources = crds.items.map( item => { return {apiVersion: item.status?.storedVersions[0], item: item.metadata?.name, scope: item.spec.scope, group: item.spec.group }})
 resources.forEach(res => {
   const api = {};
     console.log(JSON.stringify(res, null, 2));
@@ -121,21 +125,83 @@ for await (const api of apis) {
   if(api.resources && api.resources.length >0 ) {
     for await (const res of api.resources) {
       // console.log(`attempting to list ${JSON.stringify(api, null,2)}`);
-      let k8sObjects;
+      let k8sObjects = [];
       if(! api.crd){
-        k8sObjects = (await k8sObjectApi.list(api.apiVersion,res.kind)).body.items
-        console.log(`got ${k8sObjects?.length} resources for ${api.apiVersion} - ${res.kind}`);
+        console.log(api.apiName,"\t\t",api.apiVersion,"\t\t", res.kind)
+
+        const apiConfig = config.apiGroups.include.find(i => i.name === api.apiName)
+        let processResource = false;
+        
+        // if no includes block as well as excludes block then assume all to be picked!
+        if(! apiConfig?.resources?.include && ! apiConfig?.resources?.exclude) {
+          // get list of the resourcetype
+          // TODO: Temporary exclude resources not included
+          processResource = false;
+        } else {
+          // find if the resource was included OR was not excluded.
+          // console.log(JSON.stringify(apiConfig, null, 2));
+          // console.log(JSON.stringify(res));
+          
+          const isResIncluded = apiConfig.resources?.include?.find(i => i === res.kind)
+          const isResExcluded = apiConfig.resources?.exclude?.find(i => i === res.kind);
+          const isIncludeBlock = apiConfig.resources?.include ? true : false;
+          // console.log(isResIncluded, isResExcluded);
+          
+          // exclusion has more priority over inclusion. so skip processing for all excluded resources.
+          // if there is no include block and resource is not excluded then we should include it!
+          if (! isIncludeBlock && ! isResExcluded) {
+            processResource = true;
+          } else if ( ! isResExcluded && ! isResIncluded ) {
+            processResource = false;
+          } else if ( isResIncluded) {
+            processResource = true;
+          } else {
+            console.log(`Resource ${res.kind} was not queried since it was excluded in configuration.`);
+          }
+        }
+    
+        if( processResource) {
+          if(config.namespaces.include && config.namespaces.include.length > 0) {
+            for(const ns of config.namespaces.include) {
+              const nsObjects = (await k8sObjectApi.list(api.apiVersion, res.kind, ns)).items;
+              console.log(`got ${nsObjects?.length} resources for ${api.apiVersion} - ${res.kind} in namespace ${ns}`);
+              k8sObjects.push(...nsObjects);
+            }
+          } else {
+            // if no namespaces are configured then we list resources for all namespaces
+            const nsObjects = (await k8sObjectApi.list(api.apiVersion, res.kind)).items;
+            console.log(`got ${nsObjects?.length} resources for ${api.apiVersion} - ${res.kind}`);
+            k8sObjects.push(...nsObjects);
+          }
+        }
+        // TODO: when there no apiGroups in configuration. Get all!
+        // TODO: when there are no speficic resource types in configuration. Get all!
       } else {
-        const group = api.apiName, v = api.apiVersion, plural = res.kind;
-        k8sObjects = (await crApi.listClusterCustomObject(group, v, plural)).body.items;
-        console.log(`got ${k8sObjects?.length} resources for ${group}/${v} - ${plural}`);
+        const group = api.apiName, version = api.apiVersion, plural = res.kind;
+        console.log(group,"\t\t",version, "\t\t", plural);
+        // We also need to care about filtering the fetch only to the configured namespaces and resources
+        if (config.apiGroups.include.find(ag => ag.name === api.apiName && ag.resources.include.find(r => r === res.kind))) {
+          if(config.namespaces.include && config.namespaces.include.length > 0) {
+            for(const ns of config.namespaces.include) {
+              // TODO - temp comment
+              // k8sObjects = (await crApi.listClusterCustomObject({group, version, plural, fieldSelector: `metadata.namespace=${ns}`})).items;
+              // console.log(`got ${k8sObjects?.length} resources for ${group}/${version} - ${plural}`);
+            }
+          } else {
+            // TODO: if no namespaces are configured then we list resources for all namespaces
+          }
+        } else {
+          // TODO: when there no apiGroups in configuration. Get all!
+          // TODO: when there are no speficic resource types in configuration. Get all!
+        }
       }
       k8sObjects.forEach(o => {
-        delete o.metadata.managedFields
-        if(o.metadata.annotations && o.metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]) {
+        delete o.metadata?.managedFields
+        if(o.metadata?.annotations && o.metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]) {
           delete o.metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]
         }
       });
+
       res.objects=k8sObjects;
     }
   }
