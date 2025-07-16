@@ -2,7 +2,9 @@
 import { log, error } from "console";
 import nunjucks from "nunjucks";
 import { readFile, writeFile, stat, mkdir } from "node:fs/promises";
-import YAML from 'yaml'
+import YAML from 'yaml';
+import { assign, pick } from 'lodash-es';
+import indentString from "indent-string";
 
 const config = YAML.parse(await readFile('./generator-config.yaml', { encoding: 'utf8' }))
 // log(config);
@@ -16,7 +18,21 @@ import { appendFile, rm, rmdir } from "fs/promises";
 const apis = apiObjects;
 
 // log(`${apis.length}`)
-nunjucks.configure('./templates', { autoescape: true });
+const env = nunjucks.configure('./templates', { autoescape: true });
+env.addFilter('yaml', function(obj, indent,props) {
+  if(typeof indent === "string" ) {
+    // yamlOpts is also a attribute only
+    props.push(indent);
+    obj = props? pick(obj, props) : obj;
+    return YAML.stringify(obj, {lineWidth: 0});
+  }else {
+    obj = props? pick(obj, props) : obj;
+    return indentString(YAML.stringify(obj, {lineWidth: 0}), indent);
+  }
+});
+env.addFilter('upper', function(obj, count) {
+  return obj.toUpperCase();
+});
 
 // /** @type {{apiName: string, apiVersion: string, resources?:{kind: string, namespaced:boolean, objects?: Array<import("@kubernetes/client-node").KubernetesObject>}[] }} */
 // const appsApi =  apis.find( api => api.apiVersion === "apps/v1")

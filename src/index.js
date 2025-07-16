@@ -177,22 +177,55 @@ for await (const api of apis) {
         // TODO: when there no apiGroups in configuration. Get all!
         // TODO: when there are no speficic resource types in configuration. Get all!
       } else {
-        const group = api.apiName, version = api.apiVersion, plural = res.kind;
-        console.log(group,"\t\t",version, "\t\t", plural);
-        // We also need to care about filtering the fetch only to the configured namespaces and resources
-        if (config.apiGroups.include.find(ag => ag.name === api.apiName && ag.resources.include.find(r => r === res.kind))) {
-          if(config.namespaces.include && config.namespaces.include.length > 0) {
-            for(const ns of config.namespaces.include) {
-              // TODO - temp comment
-              // k8sObjects = (await crApi.listClusterCustomObject({group, version, plural, fieldSelector: `metadata.namespace=${ns}`})).items;
-              // console.log(`got ${k8sObjects?.length} resources for ${group}/${version} - ${plural}`);
+        const apiConfig = config.apiGroups.include.find(i => i.name === api.apiName)
+        let processResource = false;
+    
+        // if no includes block as well as excludes block then assume all to be picked!
+        if(! apiConfig?.resources?.include && ! apiConfig?.resources?.exclude) {
+          // get list of the resourcetype
+          processResource = false;
+        } else {
+          // find if the resource was included OR was not excluded.
+          // console.log(JSON.stringify(apiConfig, null, 2));
+          console.log(JSON.stringify(res));
+          
+          const isResIncluded = apiConfig.resources?.include?.find(i => i === res.kind)
+          const isResExcluded = apiConfig.resources?.exclude?.find(i => i === res.kind);
+          const isIncludeBlock = apiConfig.resources?.include ? true : false;
+          console.log(isResIncluded, isResExcluded);
+          
+          // exclusion has more priority over inclusion. so skip processing for all excluded resources.
+          // if there is no include block and resource is not excluded then we should include it!
+          if (! isIncludeBlock && ! isResExcluded) {
+            processResource = true;
+          } else if ( ! isResExcluded && ! isResIncluded ) {
+            processResource = false;
+          } else if ( isResIncluded) {
+            processResource = true;
+          } else {
+            console.log(`Resource ${res.kind} was not queried since it was excluded in configuration.`);
+          }
+        }
+        if( processResource) {
+          const group = api.apiName, version = api.apiVersion, plural = res.kind;
+          console.log(group,"\t\t",version, "\t\t", plural);
+          if(res.namespaced ) {
+            if(config.namespaces.include && config.namespaces.include.length > 0) {
+              for(const ns of config.namespaces.include) {
+                const nsObjects = (await crApi.listClusterCustomObject({group, version, plural, fieldSelector: `metadata.namespace=${ns}`})).items;
+                console.log(`got ${nsObjects?.length} resources for ${group}/${version} - ${plural} in ${ns} namespace`);
+                k8sObjects.push(...nsObjects);
+              }
+            } else {
+              let objects = (await crApi.listClusterCustomObject({group, version, plural})).items;
+              console.log(`got ${objects?.length} resources for ${group}/${version} - ${plural}`);
+              k8sObjects.push(...objects);
             }
           } else {
-            // TODO: if no namespaces are configured then we list resources for all namespaces
+            let objects = (await crApi.listClusterCustomObject({group, version, plural})).items;
+            console.log(`got ${objects?.length} resources for ${group}/${version} - ${plural}`);
+            k8sObjects.push(...objects);
           }
-        } else {
-          // TODO: when there no apiGroups in configuration. Get all!
-          // TODO: when there are no speficic resource types in configuration. Get all!
         }
       }
       k8sObjects.forEach(o => {
