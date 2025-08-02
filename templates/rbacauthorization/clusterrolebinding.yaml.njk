@@ -1,0 +1,11 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ metadata.name }}
+roleRef:
+{{ roleRef | yaml(2) | safe -}}
+{%- if subjects -%}
+subjects:
+{{ subjects | yaml(2) | safe -}}
+{%- endif -%}
+---

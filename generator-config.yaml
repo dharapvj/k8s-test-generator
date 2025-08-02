@@ -1,6 +1,6 @@
-# namespaces:
-#   include: *
-#   exclude: null
+namespaces:
+  include: null
+#  exclude: null
 
 apiGroups:
 #  include: *

@@ -2,7 +2,6 @@ apiVersion: networking.k8s.io/v1
 kind: IngressClass
 metadata:
   name: {{ metadata.name }}
-  namespace: {{ metadata.namespace }}
 spec:
   controller: {{ spec.controller }}
 ---

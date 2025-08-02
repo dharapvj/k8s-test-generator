@@ -3,21 +3,17 @@ import {KubeConfig, ApiextensionsV1Api, ApisApi, AppsV1Api, AutoscalingV2Api, Ba
 import { readFile, writeFile } from "node:fs/promises";
 import YAML from 'yaml'
 
-const config = YAML.parse(await readFile('./generator-config.yaml', { encoding: 'utf8' }))
-// log(config);
-
 import { capitalize } from "./utils.js";
+import { generate } from "./test-generator.js";
 
 const clientRef =await import("@kubernetes/client-node")
 
+
+const config = YAML.parse(await readFile('./generator-config.yaml', { encoding: 'utf8' }))
+// log(config);
+
 const kc = new KubeConfig();
 kc.loadFromDefault();
-
-// console.log("k8s client ready!");
-// const coreApi = kc.makeApiClient(CoreV1Api);
-// const batchApi = kc.makeApiClient(BatchV1Api);
-// const appsApi = kc.makeApiClient(AppsV1Api);
-// const autoscalingApi = kc.makeApiClient(AutoscalingV2Api);
 
 
 // Logic
@@ -93,16 +89,13 @@ for await (const api of apis) {
 }
 // console.log(JSON.stringify(apis, null, 2));
 
-// // const batchV1Api = kc.makeApiClient(clientRef["BatchV1Api"])
-// // console.log(JSON.stringify((await batchV1Api.getAPIResources()).body.resources, null, 2))
-
 // also include Custom resources in the apigroup array above
 const apiextensionsApi = kc.makeApiClient(ApiextensionsV1Api)
 const crds = await apiextensionsApi.listCustomResourceDefinition()
 const resources = crds.items.map( item => { return {apiVersion: item.status?.storedVersions[0], item: item.metadata?.name, scope: item.spec.scope, group: item.spec.group }})
 resources.forEach(res => {
   const api = {};
-    console.log(JSON.stringify(res, null, 2));
+    // console.log(JSON.stringify(res, null, 2));
     // find corresponding api in `apis` list and populate resources block
     const crapi = apis.find(api => api.apiName === res.group && api.apiVersion === res.apiVersion);
     if (crapi) {
@@ -131,12 +124,12 @@ for await (const api of apis) {
 
         const apiConfig = config.apiGroups.include.find(i => i.name === api.apiName)
         let processResource = false;
+        if(! apiConfig) continue;
         
         // if no includes block as well as excludes block then assume all to be picked!
         if(! apiConfig?.resources?.include && ! apiConfig?.resources?.exclude) {
           // get list of the resourcetype
-          // TODO: Temporary exclude resources not included
-          processResource = false;
+          processResource = true;
         } else {
           // find if the resource was included OR was not excluded.
           // console.log(JSON.stringify(apiConfig, null, 2));
@@ -187,7 +180,7 @@ for await (const api of apis) {
         } else {
           // find if the resource was included OR was not excluded.
           // console.log(JSON.stringify(apiConfig, null, 2));
-          console.log(JSON.stringify(res));
+          // console.log(JSON.stringify(res));
           
           const isResIncluded = apiConfig.resources?.include?.find(i => i === res.kind)
           const isResExcluded = apiConfig.resources?.exclude?.find(i => i === res.kind);
@@ -240,7 +233,9 @@ for await (const api of apis) {
   }
 }
 
-await writeFile("./objects.json",JSON.stringify(apis,null,2));
+console.log("Got details of the resources from the cluster!");
+// await writeFile("./objects.json",JSON.stringify(apis,null,2));
+await generate(apis)
 console.log("All done!");
 
 // const pods = (await k8sObjectApi.list("","Pod")).body.items

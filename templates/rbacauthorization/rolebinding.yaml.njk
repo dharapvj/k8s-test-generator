@@ -1,0 +1,10 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ metadata.name }}
+  namespace: {{ metadata.namespace }}
+roleRef:
+{{ roleRef | yaml(2) | safe -}}
+subjects:
+{{ subjects | yaml(2) | safe -}}
+---

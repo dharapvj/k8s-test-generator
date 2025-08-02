@@ -1,0 +1,8 @@
+apiVersion: velero.io/v1
+kind: VolumeSnapshotLocation
+metadata:
+  name: {{ metadata.name }}
+  namespace: {{ metadata.namespace }}
+spec:
+{{ spec | yaml(2) | safe }}
+---

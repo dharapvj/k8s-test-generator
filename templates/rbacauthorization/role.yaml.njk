@@ -1,0 +1,8 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ metadata.name }}
+  namespace: {{ metadata.namespace }}
+rules:
+{{ rules | yaml(2) | safe -}}
+---
